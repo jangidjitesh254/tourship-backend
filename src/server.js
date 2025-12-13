@@ -19,6 +19,7 @@ const organiserRoutes = require('./routes/organiserRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const tripRoutes = require('./routes/tripRoutes');
 const attractionRoutes = require('./routes/attractionRoutes');
+const userAttractionRoutes = require('./routes/userAttractionRoutes');
 
 // Import error handlers
 const { notFound, errorHandler } = require('./middleware/errorHandler');
@@ -113,6 +114,22 @@ app.get('/api', (req, res) => {
       adminAttractions: '/api/admin/attractions',
       admin: '/api/admin'
     },
+    attractionEndpoints: {
+      home: 'GET /api/attractions/home',
+      list: 'GET /api/attractions',
+      search: 'GET /api/attractions/search?q=',
+      featured: 'GET /api/attractions/featured',
+      popular: 'GET /api/attractions/popular',
+      mustVisit: 'GET /api/attractions/must-visit',
+      hiddenGems: 'GET /api/attractions/hidden-gems',
+      nearby: 'GET /api/attractions/nearby?lat=&lng=',
+      cities: 'GET /api/attractions/cities',
+      categories: 'GET /api/attractions/categories',
+      districts: 'GET /api/attractions/districts',
+      byCity: 'GET /api/attractions/city/:city',
+      single: 'GET /api/attractions/:slug',
+      reviews: 'GET /api/attractions/:slug/reviews'
+    },
     roles: ['tourist', 'guide', 'organiser', 'admin'],
     documentation: '/api/docs'
   });
@@ -125,7 +142,7 @@ app.use('/api/guide', guideRoutes);
 app.use('/api/organiser', organiserRoutes);
 app.use('/api/organiser', tripRoutes);  // Trip routes under organiser
 app.use('/api/admin', adminRoutes);
-app.use('/api/attractions', attractionRoutes);  // Public attraction routes
+app.use('/api/attractions', userAttractionRoutes);  // User-facing attraction routes
 app.use('/api/admin/attractions', attractionRoutes);  // Admin attraction routes
 
 // ===================
