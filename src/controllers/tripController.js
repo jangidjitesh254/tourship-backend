@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Trip = require('../models/Trip');
 const User = require('../models/User');
 const Attraction = require('../models/Attraction');
@@ -1204,9 +1205,6 @@ const getAdminAttractions = async (req, res, next) => {
     next(error);
   }
 };
-
-// Import mongoose for ObjectId in aggregations
-const mongoose = require('mongoose');
 
 module.exports = {
   // CRUD

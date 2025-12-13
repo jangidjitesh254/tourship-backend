@@ -1,58 +1,50 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
-const dotenv = require('dotenv');
+require('dotenv').config();
 
-// Load environment variables
-dotenv.config();
+// Import middleware
+const { errorHandler, notFound } = require('./middleware/errorHandler');
 
-// Import database connection
-const connectDB = require('./config/database');
-
-// Import routes
-const authRoutes = require('./routes/authRoutes');
-const userRoutes = require('./routes/userRoutes');
-const guideRoutes = require('./routes/guideRoutes');
-const organiserRoutes = require('./routes/organiserRoutes');
-const adminRoutes = require('./routes/adminRoutes');
-const tripRoutes = require('./routes/tripRoutes');
-const attractionRoutes = require('./routes/attractionRoutes');
-const userAttractionRoutes = require('./routes/userAttractionRoutes');
-
-// Import error handlers
-const { notFound, errorHandler } = require('./middleware/errorHandler');
-
-// Initialize express app
 const app = express();
 
-// Connect to database
+// ===================
+// DATABASE CONNECTION
+// ===================
+const connectDB = async () => {
+  try {
+    const conn = await mongoose.connect(process.env.MONGODB_URI);
+    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+  } catch (error) {
+    console.error(`❌ Database Connection Error: ${error.message}`);
+    process.exit(1);
+  }
+};
+
 connectDB();
 
 // ===================
 // MIDDLEWARE
 // ===================
 
-// Security Headers
+// Security
 app.use(helmet());
 
-// CORS Configuration - Allow all origins for development/hackathon
+// CORS
 app.use(cors({
-  origin: true, // Allow all origins
+  origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : ['http://localhost:3000', 'http://localhost:5173'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
-  optionsSuccessStatus: 200
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
-
-// Handle preflight requests explicitly
-app.options('*', cors());
 
 // Rate Limiting
 const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // limit each IP to 100 requests per windowMs
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
   message: {
     success: false,
     message: 'Too many requests, please try again later.'
@@ -71,6 +63,32 @@ if (process.env.NODE_ENV === 'development') {
 
 // Static files
 app.use('/uploads', express.static('public/uploads'));
+
+// ===================
+// IMPORT ROUTES
+// ===================
+const authRoutes = require('./routes/authRoutes');
+const userRoutes = require('./routes/userRoutes');
+const guideRoutes = require('./routes/guideRoutes');
+const organiserRoutes = require('./routes/organiserRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+const tripRoutes = require('./routes/tripRoutes');
+
+// Optional routes - only import if they exist
+let attractionRoutes = null;
+let userAttractionRoutes = null;
+
+try {
+  attractionRoutes = require('./routes/attractionRoutes');
+} catch (e) {
+  console.log('⚠️ attractionRoutes not found, skipping...');
+}
+
+try {
+  userAttractionRoutes = require('./routes/userAttractionRoutes');
+} catch (e) {
+  console.log('⚠️ userAttractionRoutes not found, skipping...');
+}
 
 // ===================
 // ROUTES
@@ -98,25 +116,9 @@ app.get('/api', (req, res) => {
       guide: '/api/guide',
       organiser: '/api/organiser',
       trips: '/api/organiser/trips',
+      admin: '/api/admin',
       attractions: '/api/attractions',
-      adminAttractions: '/api/admin/attractions',
-      admin: '/api/admin'
-    },
-    attractionEndpoints: {
-      home: 'GET /api/attractions/home',
-      list: 'GET /api/attractions',
-      search: 'GET /api/attractions/search?q=',
-      featured: 'GET /api/attractions/featured',
-      popular: 'GET /api/attractions/popular',
-      mustVisit: 'GET /api/attractions/must-visit',
-      hiddenGems: 'GET /api/attractions/hidden-gems',
-      nearby: 'GET /api/attractions/nearby?lat=&lng=',
-      cities: 'GET /api/attractions/cities',
-      categories: 'GET /api/attractions/categories',
-      districts: 'GET /api/attractions/districts',
-      byCity: 'GET /api/attractions/city/:city',
-      single: 'GET /api/attractions/:slug',
-      reviews: 'GET /api/attractions/:slug/reviews'
+      adminAttractions: '/api/admin/attractions'
     },
     roles: ['tourist', 'guide', 'organiser', 'admin'],
     documentation: '/api/docs'
@@ -130,8 +132,14 @@ app.use('/api/guide', guideRoutes);
 app.use('/api/organiser', organiserRoutes);
 app.use('/api/organiser', tripRoutes);  // Trip routes under organiser
 app.use('/api/admin', adminRoutes);
-app.use('/api/attractions', userAttractionRoutes);  // User-facing attraction routes
-app.use('/api/admin/attractions', attractionRoutes);  // Admin attraction routes
+
+// Mount attraction routes if they exist
+if (attractionRoutes) {
+  app.use('/api/admin/attractions', attractionRoutes);
+}
+if (userAttractionRoutes) {
+  app.use('/api/attractions', userAttractionRoutes);
+}
 
 // ===================
 // ERROR HANDLING
@@ -167,7 +175,6 @@ const server = app.listen(PORT, () => {
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (err, promise) => {
   console.error(`❌ Unhandled Rejection: ${err.message}`);
-  // Close server & exit process
   server.close(() => process.exit(1));
 });
 
