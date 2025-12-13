@@ -19,17 +19,27 @@ const itineraryDaySchema = new mongoose.Schema({
     time: String,
     activity: String,
     location: String,
-    duration: String
+    duration: String,
+    notes: String
   }],
   meals: {
-    breakfast: { type: Boolean, default: false },
-    lunch: { type: Boolean, default: false },
-    dinner: { type: Boolean, default: false }
+    breakfast: { included: { type: Boolean, default: false }, venue: String },
+    lunch: { included: { type: Boolean, default: false }, venue: String },
+    dinner: { included: { type: Boolean, default: false }, venue: String }
   },
   accommodation: {
-    name: String,
-    type: { type: String, enum: ['hotel', 'resort', 'homestay', 'camp', 'heritage', 'other'] },
-    location: String
+    hotel: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Hotel'
+    },
+    hotelName: String,
+    hotelType: { 
+      type: String, 
+      enum: ['hotel', 'resort', 'homestay', 'camp', 'heritage', 'dharamshala', 'guest_house', 'other'] 
+    },
+    roomType: String,
+    checkIn: String,
+    checkOut: String
   }
 }, { _id: false });
 
@@ -49,9 +59,20 @@ const bookingSchema = new mongoose.Schema({
     required: true,
     min: 1
   },
+  travelers: [{
+    name: String,
+    age: Number,
+    gender: String,
+    idType: String,
+    idNumber: String
+  }],
   totalAmount: {
     type: Number,
     required: true
+  },
+  paidAmount: {
+    type: Number,
+    default: 0
   },
   paymentStatus: {
     type: String,
@@ -60,12 +81,27 @@ const bookingSchema = new mongoose.Schema({
   },
   bookingStatus: {
     type: String,
-    enum: ['pending', 'confirmed', 'cancelled', 'completed'],
+    enum: ['pending', 'confirmed', 'cancelled', 'completed', 'no_show'],
     default: 'pending'
   },
   specialRequests: String,
   contactPhone: String,
-  contactEmail: String
+  contactEmail: String,
+  emergencyContact: {
+    name: String,
+    phone: String,
+    relation: String
+  },
+  // Hotel selection by user
+  selectedHotel: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Hotel'
+  },
+  hotelStatus: {
+    type: String,
+    enum: ['pending', 'confirmed', 'not_required'],
+    default: 'pending'
+  }
 }, { timestamps: true });
 
 // Main Trip Schema
@@ -79,7 +115,8 @@ const tripSchema = new mongoose.Schema({
   },
   slug: {
     type: String,
-    unique: true
+    unique: true,
+    sparse: true
   },
   description: {
     type: String,
@@ -90,176 +127,293 @@ const tripSchema = new mongoose.Schema({
     type: String,
     maxlength: [300, 'Short description cannot exceed 300 characters']
   },
-  
-  // Organiser (Creator)
-  organiser: {
+
+  // ============================================
+  // ATTRACTION REFERENCE (Admin-created only)
+  // ============================================
+  attraction: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+    ref: 'Attraction',
+    required: [true, 'Attraction is required - trips can only be created for admin attractions']
   },
   
-  // Assigned Guide
-  assignedGuide: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    default: null
-  },
-  guideAssignedAt: Date,
-  guideStatus: {
-    type: String,
-    enum: ['not_assigned', 'pending', 'accepted', 'rejected'],
-    default: 'not_assigned'
-  },
-  guideRejectionReason: String,
-  
-  // Trip Type & Category
+  // Multiple attractions for multi-destination trips
+  attractions: [{
+    attraction: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Attraction'
+    },
+    visitOrder: Number,
+    visitDuration: String, // e.g., "2 hours", "half day"
+    notes: String
+  }],
+
+  // Trip Type
   tripType: {
     type: String,
-    enum: ['group', 'private', 'custom', 'corporate', 'educational', 'adventure'],
-    default: 'group'
+    enum: ['single_attraction', 'multi_attraction', 'city_tour', 'multi_city', 'custom'],
+    default: 'single_attraction'
   },
+  
   categories: [{
     type: String,
-    enum: ['heritage', 'wildlife', 'desert', 'spiritual', 'adventure', 'cultural', 'photography', 'food', 'luxury', 'budget', 'family', 'honeymoon']
+    enum: [
+      'heritage', 'cultural', 'adventure', 'wildlife', 'pilgrimage',
+      'desert_safari', 'lake_tour', 'fort_palace', 'village_tour',
+      'photography', 'food_tour', 'shopping', 'honeymoon', 'family',
+      'solo', 'group', 'luxury', 'budget', 'weekend', 'long_weekend'
+    ]
   }],
-  
-  // Location Details
+
+  // Destinations (derived from attractions)
   destinations: [{
-    name: {
-      type: String,
-      required: true
-    },
+    name: String,
+    city: String,
     district: {
       type: String,
-      enum: ['jaipur', 'udaipur', 'jodhpur', 'jaisalmer', 'pushkar', 'mount_abu', 'bikaner', 'ajmer', 'kota', 'bharatpur', 'other']
+      enum: [
+        'jaipur', 'udaipur', 'jodhpur', 'jaisalmer', 'pushkar', 'mount_abu',
+        'bikaner', 'ajmer', 'kota', 'bharatpur', 'alwar', 'chittorgarh',
+        'bundi', 'sawai_madhopur', 'sikar', 'jhunjhunu', 'nagaur', 'pali',
+        'barmer', 'jalore', 'sirohi', 'rajsamand', 'bhilwara', 'tonk',
+        'dausa', 'karauli', 'dholpur', 'baran', 'jhalawar', 'pratapgarh',
+        'banswara', 'dungarpur', 'other'
+      ]
     },
     stayDuration: String,
-    highlights: [String]
-  }],
-  startLocation: {
-    name: String,
-    address: String,
     coordinates: {
       lat: Number,
       lng: Number
     }
+  }],
+
+  // Location Details
+  startLocation: {
+    name: { type: String, required: true },
+    address: String,
+    city: String,
+    coordinates: {
+      lat: Number,
+      lng: Number
+    },
+    meetingPoint: String
   },
   endLocation: {
     name: String,
     address: String,
+    city: String,
     coordinates: {
       lat: Number,
       lng: Number
     }
   },
-  
-  // Duration & Schedule
+
+  // Duration
   duration: {
-    days: {
-      type: Number,
-      required: true,
-      min: 1
-    },
-    nights: {
-      type: Number,
-      required: true,
-      min: 0
-    }
+    days: { type: Number, required: true, min: 1 },
+    nights: { type: Number, default: 0 }
   },
+
+  // Dates & Timing
   startDate: {
     type: Date,
-    required: true
+    required: [true, 'Start date is required']
   },
   endDate: {
     type: Date,
-    required: true
+    required: [true, 'End date is required']
   },
   reportingTime: String,
   departureTime: String,
-  
+
+  // Recurring trips
+  isRecurring: {
+    type: Boolean,
+    default: false
+  },
+  recurringSchedule: {
+    frequency: { type: String, enum: ['daily', 'weekly', 'monthly', 'custom'] },
+    daysOfWeek: [{ type: Number, min: 0, max: 6 }], // 0 = Sunday
+    excludeDates: [Date]
+  },
+
   // Itinerary
   itinerary: [itineraryDaySchema],
-  
-  // Pricing
+
+  // ============================================
+  // PRICING (includes attraction entry fee)
+  // ============================================
   pricing: {
     basePrice: {
       type: Number,
-      required: true,
+      required: [true, 'Base price is required'],
       min: 0
-    },
-    currency: {
-      type: String,
-      default: 'INR'
     },
     pricePerPerson: {
       type: Number,
       required: true,
       min: 0
     },
-    childPrice: {
+    // Breakdown
+    attractionEntryFee: {
       type: Number,
       default: 0
     },
-    singleSupplementPrice: {
+    transportCost: {
       type: Number,
       default: 0
     },
-    discountPercentage: {
+    guideFee: {
       type: Number,
-      default: 0,
-      min: 0,
-      max: 100
+      default: 0
+    },
+    mealsCost: {
+      type: Number,
+      default: 0
+    },
+    accommodationCost: {
+      type: Number,
+      default: 0
+    },
+    miscCost: {
+      type: Number,
+      default: 0
+    },
+    // Pricing tiers
+    childPrice: Number, // For ages 5-12
+    infantPrice: Number, // Under 5
+    seniorPrice: Number, // 60+
+    groupDiscount: {
+      minPeople: Number,
+      discountPercent: Number
     },
     earlyBirdDiscount: {
-      percentage: { type: Number, default: 0 },
-      validTill: Date
+      deadline: Date,
+      discountPercent: Number
+    },
+    currency: {
+      type: String,
+      default: 'INR'
     }
   },
-  
+
   // Capacity
   capacity: {
-    minPeople: {
-      type: Number,
-      default: 1,
-      min: 1
-    },
-    maxPeople: {
-      type: Number,
-      required: true,
-      min: 1
-    },
-    currentBookings: {
-      type: Number,
-      default: 0
-    }
+    minPeople: { type: Number, default: 1, min: 1 },
+    maxPeople: { type: Number, required: true, min: 1 },
+    currentBookings: { type: Number, default: 0 },
+    availableSlots: Number
   },
-  
-  // Inclusions & Exclusions
+
+  // What's included/excluded
   inclusions: [{
-    type: String
+    item: String,
+    description: String,
+    icon: String
   }],
   exclusions: [{
-    type: String
+    item: String,
+    description: String
   }],
-  
-  // Media
+
+  // Images
   images: [{
-    url: String,
+    url: { type: String, required: true },
     caption: String,
-    isPrimary: { type: Boolean, default: false }
+    isMain: { type: Boolean, default: false },
+    order: Number
   }],
-  videos: [{
+  thumbnail: {
     url: String,
-    title: String
+    alt: String
+  },
+
+  // Trip difficulty & requirements
+  difficulty: {
+    type: String,
+    enum: ['easy', 'moderate', 'challenging', 'difficult'],
+    default: 'easy'
+  },
+  ageRestriction: {
+    minAge: { type: Number, default: 0 },
+    maxAge: { type: Number, default: 100 }
+  },
+  physicalRequirements: String,
+  whatToBring: [String],
+
+  // Languages
+  languages: [{
+    type: String,
+    enum: ['english', 'hindi', 'rajasthani', 'gujarati', 'punjabi', 'marathi', 'german', 'french', 'spanish', 'japanese', 'chinese', 'other']
   }],
-  
-  // Bookings
+
+  // Transport
+  transport: {
+    type: { 
+      type: String, 
+      enum: ['ac_bus', 'non_ac_bus', 'tempo_traveller', 'innova', 'sedan', 'suv', 'train', 'flight', 'self', 'mixed'] 
+    },
+    pickupAvailable: { type: Boolean, default: false },
+    pickupLocations: [String],
+    dropOffAvailable: { type: Boolean, default: false }
+  },
+
+  // ============================================
+  // ORGANISER (Creator of the trip)
+  // ============================================
+  organiser: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+
+  // ============================================
+  // GUIDE ASSIGNMENT
+  // ============================================
+  guide: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  guideAssignment: {
+    status: {
+      type: String,
+      enum: ['not_assigned', 'pending', 'accepted', 'rejected'],
+      default: 'not_assigned'
+    },
+    assignedAt: Date,
+    respondedAt: Date,
+    rejectionReason: String
+  },
+
+  // ============================================
+  // HOTEL OPTIONS (for user selection)
+  // ============================================
+  hotelOptions: [{
+    hotel: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Hotel'
+    },
+    hotelName: String,
+    hotelRating: Number, // 1-5 stars
+    roomType: String,
+    pricePerNight: Number,
+    amenities: [String],
+    images: [String],
+    isRecommended: { type: Boolean, default: false },
+    availableRooms: Number
+  }],
+
+  // ============================================
+  // BOOKINGS
+  // ============================================
   bookings: [bookingSchema],
-  
-  // Status
+
+  // ============================================
+  // STATUS & VISIBILITY
+  // ============================================
   status: {
     type: String,
-    enum: ['draft', 'published', 'cancelled', 'completed', 'full'],
+    enum: ['draft', 'pending_approval', 'published', 'cancelled', 'completed', 'full', 'expired'],
     default: 'draft'
   },
   isActive: {
@@ -270,104 +424,277 @@ const tripSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  
-  // Ratings & Reviews
-  averageRating: {
-    type: Number,
-    min: 0,
-    max: 5,
-    default: 0
-  },
-  totalReviews: {
-    type: Number,
-    default: 0
-  },
-  
-  // Additional Info
-  difficulty: {
+  visibility: {
     type: String,
-    enum: ['easy', 'moderate', 'challenging', 'difficult'],
-    default: 'easy'
+    enum: ['public', 'private', 'unlisted'],
+    default: 'public'
   },
-  ageRestriction: {
-    minAge: { type: Number, default: 0 },
-    maxAge: { type: Number, default: 100 }
-  },
-  languages: [{
-    type: String,
-    enum: ['english', 'hindi', 'rajasthani', 'german', 'french', 'spanish', 'other']
-  }],
-  
+
   // Policies
   cancellationPolicy: {
-    type: String,
-    maxlength: 2000
+    type: {
+      type: String,
+      enum: ['flexible', 'moderate', 'strict', 'non_refundable'],
+      default: 'moderate'
+    },
+    description: String,
+    refundRules: [{
+      daysBeforeTrip: Number,
+      refundPercent: Number
+    }]
   },
-  termsAndConditions: {
-    type: String,
-    maxlength: 5000
-  },
-  
-  // Metadata
+  termsAndConditions: String,
+
+  // Tags & SEO
   tags: [String],
-  viewCount: {
-    type: Number,
-    default: 0
-  }
+  metaTitle: String,
+  metaDescription: String,
+
+  // Analytics
+  analytics: {
+    views: { type: Number, default: 0 },
+    enquiries: { type: Number, default: 0 },
+    bookingsCount: { type: Number, default: 0 },
+    revenue: { type: Number, default: 0 },
+    avgRating: { type: Number, default: 0 },
+    reviewsCount: { type: Number, default: 0 }
+  },
+
+  // Reviews
+  reviews: [{
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    rating: { type: Number, min: 1, max: 5 },
+    title: String,
+    comment: String,
+    photos: [String],
+    isVerified: { type: Boolean, default: false },
+    createdAt: { type: Date, default: Date.now }
+  }]
+
 }, {
   timestamps: true,
   toJSON: { virtuals: true },
   toObject: { virtuals: true }
 });
 
-// Virtuals
-tripSchema.virtual('availableSlots').get(function() {
+// ============================================
+// INDEXES
+// ============================================
+tripSchema.index({ organiser: 1, status: 1 });
+tripSchema.index({ attraction: 1 });
+tripSchema.index({ 'attractions.attraction': 1 });
+tripSchema.index({ startDate: 1, endDate: 1 });
+tripSchema.index({ status: 1, isActive: 1, visibility: 1 });
+tripSchema.index({ slug: 1 });
+tripSchema.index({ 'destinations.city': 1 });
+tripSchema.index({ 'destinations.district': 1 });
+tripSchema.index({ categories: 1 });
+tripSchema.index({ tags: 1 });
+
+// Text index for search
+tripSchema.index({
+  title: 'text',
+  description: 'text',
+  'destinations.name': 'text',
+  tags: 'text'
+});
+
+// ============================================
+// VIRTUALS
+// ============================================
+tripSchema.virtual('daysUntilStart').get(function() {
+  if (!this.startDate) return null;
+  const now = new Date();
+  const diff = this.startDate - now;
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+});
+
+tripSchema.virtual('availableSlotsCount').get(function() {
   return this.capacity.maxPeople - this.capacity.currentBookings;
 });
 
-tripSchema.virtual('isSoldOut').get(function() {
+tripSchema.virtual('isFullyBooked').get(function() {
   return this.capacity.currentBookings >= this.capacity.maxPeople;
 });
 
-tripSchema.virtual('discountedPrice').get(function() {
-  if (this.pricing.discountPercentage > 0) {
-    return this.pricing.pricePerPerson * (1 - this.pricing.discountPercentage / 100);
-  }
-  return this.pricing.pricePerPerson;
+tripSchema.virtual('isTripStarted').get(function() {
+  return new Date() >= this.startDate;
 });
 
-tripSchema.virtual('totalBookingsCount').get(function() {
-  return this.bookings?.length || 0;
+tripSchema.virtual('isTripEnded').get(function() {
+  return new Date() > this.endDate;
 });
 
-// Indexes
-tripSchema.index({ organiser: 1 });
-tripSchema.index({ assignedGuide: 1 });
-tripSchema.index({ status: 1 });
-tripSchema.index({ startDate: 1 });
-tripSchema.index({ 'destinations.district': 1 });
-tripSchema.index({ categories: 1 });
-tripSchema.index({ slug: 1 });
-tripSchema.index({ createdAt: -1 });
-
-// Generate slug before saving
-tripSchema.pre('save', function(next) {
-  if (this.isNew || this.isModified('title')) {
-    this.slug = this.title
+// ============================================
+// PRE-SAVE MIDDLEWARE
+// ============================================
+tripSchema.pre('save', async function(next) {
+  // Generate slug if not exists
+  if (!this.slug && this.title) {
+    const baseSlug = this.title
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') + '-' + Date.now();
+      .replace(/(^-|-$)/g, '');
+    
+    // Check for existing slugs
+    const existingCount = await this.constructor.countDocuments({
+      slug: new RegExp(`^${baseSlug}(-\\d+)?$`),
+      _id: { $ne: this._id }
+    });
+    
+    this.slug = existingCount > 0 ? `${baseSlug}-${existingCount + 1}` : baseSlug;
   }
+
+  // Calculate available slots
+  this.capacity.availableSlots = this.capacity.maxPeople - this.capacity.currentBookings;
+
+  // Auto-update status based on capacity
+  if (this.capacity.currentBookings >= this.capacity.maxPeople && this.status === 'published') {
+    this.status = 'full';
+  }
+
+  // Auto-expire past trips
+  if (this.endDate && new Date() > this.endDate && this.status !== 'completed' && this.status !== 'cancelled') {
+    this.status = 'expired';
+  }
+
   next();
 });
 
-// Update status if full
-tripSchema.pre('save', function(next) {
-  if (this.capacity.currentBookings >= this.capacity.maxPeople) {
-    this.status = 'full';
+// ============================================
+// STATIC METHODS
+// ============================================
+
+// Get trips by organiser
+tripSchema.statics.getByOrganiser = function(organiserId, options = {}) {
+  const query = { organiser: organiserId };
+  
+  if (options.status) query.status = options.status;
+  if (options.isActive !== undefined) query.isActive = options.isActive;
+  
+  return this.find(query)
+    .populate('attraction', 'name city thumbnail entryFee')
+    .populate('guide', 'name email phone')
+    .sort(options.sort || { createdAt: -1 });
+};
+
+// Get trips by attraction
+tripSchema.statics.getByAttraction = function(attractionId) {
+  return this.find({
+    $or: [
+      { attraction: attractionId },
+      { 'attractions.attraction': attractionId }
+    ],
+    status: 'published',
+    isActive: true
+  })
+  .populate('organiser', 'name organiserProfile.companyName organiserProfile.logo')
+  .sort({ startDate: 1 });
+};
+
+// Get available trips
+tripSchema.statics.getAvailable = function(filters = {}) {
+  const query = {
+    status: 'published',
+    isActive: true,
+    visibility: 'public',
+    startDate: { $gt: new Date() },
+    $expr: { $lt: ['$capacity.currentBookings', '$capacity.maxPeople'] }
+  };
+
+  if (filters.city) {
+    query['destinations.city'] = new RegExp(filters.city, 'i');
   }
-  next();
-});
+  if (filters.district) {
+    query['destinations.district'] = filters.district;
+  }
+  if (filters.category) {
+    query.categories = filters.category;
+  }
+  if (filters.minPrice) {
+    query['pricing.pricePerPerson'] = { $gte: filters.minPrice };
+  }
+  if (filters.maxPrice) {
+    query['pricing.pricePerPerson'] = { 
+      ...query['pricing.pricePerPerson'], 
+      $lte: filters.maxPrice 
+    };
+  }
+  if (filters.startDate) {
+    query.startDate = { $gte: new Date(filters.startDate) };
+  }
+
+  return this.find(query)
+    .populate('attraction', 'name city thumbnail category')
+    .populate('organiser', 'name organiserProfile.companyName organiserProfile.logo organiserProfile.rating')
+    .sort({ startDate: 1 });
+};
+
+// ============================================
+// INSTANCE METHODS
+// ============================================
+
+// Add booking
+tripSchema.methods.addBooking = async function(bookingData) {
+  if (this.capacity.currentBookings >= this.capacity.maxPeople) {
+    throw new Error('Trip is fully booked');
+  }
+
+  this.bookings.push(bookingData);
+  this.capacity.currentBookings += bookingData.numberOfPeople;
+  this.analytics.bookingsCount += 1;
+  this.analytics.revenue += bookingData.totalAmount;
+
+  return this.save();
+};
+
+// Cancel booking
+tripSchema.methods.cancelBooking = async function(bookingId) {
+  const booking = this.bookings.id(bookingId);
+  if (!booking) {
+    throw new Error('Booking not found');
+  }
+
+  booking.bookingStatus = 'cancelled';
+  this.capacity.currentBookings -= booking.numberOfPeople;
+  
+  // Reset status if trip was full
+  if (this.status === 'full') {
+    this.status = 'published';
+  }
+
+  return this.save();
+};
+
+// Assign guide
+tripSchema.methods.assignGuide = async function(guideId) {
+  this.guide = guideId;
+  this.guideAssignment = {
+    status: 'pending',
+    assignedAt: new Date()
+  };
+  return this.save();
+};
+
+// Respond to guide assignment
+tripSchema.methods.respondToGuideAssignment = async function(accept, reason) {
+  this.guideAssignment.status = accept ? 'accepted' : 'rejected';
+  this.guideAssignment.respondedAt = new Date();
+  if (!accept && reason) {
+    this.guideAssignment.rejectionReason = reason;
+    this.guide = null;
+  }
+  return this.save();
+};
+
+// Increment view count
+tripSchema.methods.incrementViews = async function() {
+  this.analytics.views += 1;
+  return this.save();
+};
 
 const Trip = mongoose.model('Trip', tripSchema);
 
