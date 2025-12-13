@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const Trip = require('../models/Trip');
 const { AppError } = require('../middleware/errorHandler');
 
 // @desc    Get guide profile
@@ -261,5 +262,100 @@ module.exports = {
   getAllGuides,
   getGuideById,
   updateAvailability,
-  getGuideDashboard
+  getGuideDashboard,
+  getMyAssignedTrips,
+  respondToAssignment
+};
+
+// @desc    Get trips assigned to guide
+// @route   GET /api/guide/my-trips
+// @access  Private (Guide)
+const getMyAssignedTrips = async (req, res, next) => {
+  try {
+    const { status } = req.query;
+    
+    const query = { assignedGuide: req.user.id };
+    
+    if (status) {
+      query.guideStatus = status;
+    }
+
+    const trips = await Trip.find(query)
+      .populate('organiser', 'firstName lastName organiserProfile.companyName')
+      .sort({ startDate: 1 });
+
+    const formattedTrips = trips.map(trip => ({
+      id: trip._id,
+      title: trip.title,
+      organiser: {
+        id: trip.organiser._id,
+        name: `${trip.organiser.firstName} ${trip.organiser.lastName}`,
+        company: trip.organiser.organiserProfile?.companyName
+      },
+      destinations: trip.destinations.map(d => d.name),
+      duration: trip.duration,
+      startDate: trip.startDate,
+      endDate: trip.endDate,
+      guideStatus: trip.guideStatus,
+      assignedAt: trip.guideAssignedAt,
+      totalBookings: trip.bookings?.length || 0,
+      status: trip.status
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: formattedTrips,
+      count: formattedTrips.length
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Accept or reject trip assignment
+// @route   PUT /api/guide/trips/:id/respond
+// @access  Private (Guide)
+const respondToAssignment = async (req, res, next) => {
+  try {
+    const { action, reason } = req.body; // action: 'accept' or 'reject'
+
+    if (!['accept', 'reject'].includes(action)) {
+      return next(new AppError('Invalid action. Use "accept" or "reject"', 400));
+    }
+
+    const trip = await Trip.findOne({
+      _id: req.params.id,
+      assignedGuide: req.user.id,
+      guideStatus: 'pending'
+    });
+
+    if (!trip) {
+      return next(new AppError('Trip assignment not found or already responded', 404));
+    }
+
+    if (action === 'accept') {
+      trip.guideStatus = 'accepted';
+      
+      // Update guide's total tours count
+      await User.findByIdAndUpdate(req.user.id, {
+        $inc: { 'guideProfile.totalTours': 1 }
+      });
+    } else {
+      trip.guideStatus = 'rejected';
+      trip.guideRejectionReason = reason || 'No reason provided';
+    }
+
+    await trip.save();
+
+    res.status(200).json({
+      success: true,
+      message: action === 'accept' ? 'Trip assignment accepted' : 'Trip assignment rejected',
+      data: {
+        tripId: trip._id,
+        guideStatus: trip.guideStatus
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
 };

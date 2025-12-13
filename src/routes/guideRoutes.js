@@ -8,7 +8,9 @@ const {
   getAllGuides,
   getGuideById,
   updateAvailability,
-  getGuideDashboard
+  getGuideDashboard,
+  getMyAssignedTrips,
+  respondToAssignment
 } = require('../controllers/guideController');
 
 const { protect, isGuide, requireVerified } = require('../middleware/auth');
@@ -27,7 +29,8 @@ router.post('/me/submit-verification', submitForVerification);
 router.put('/me/availability', updateAvailability);
 router.get('/me/dashboard', getGuideDashboard);
 
-// Routes requiring verification
-// router.post('/tours', requireVerified, createTour);
+// Trip Assignment routes
+router.get('/me/trips', getMyAssignedTrips);
+router.put('/trips/:id/respond', respondToAssignment);
 
 module.exports = router;

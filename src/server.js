@@ -17,6 +17,7 @@ const userRoutes = require('./routes/userRoutes');
 const guideRoutes = require('./routes/guideRoutes');
 const organiserRoutes = require('./routes/organiserRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const tripRoutes = require('./routes/tripRoutes');
 
 // Import error handlers
 const { notFound, errorHandler } = require('./middleware/errorHandler');
@@ -90,6 +91,7 @@ app.get('/api', (req, res) => {
       users: '/api/users',
       guide: '/api/guide',
       organiser: '/api/organiser',
+      trips: '/api/organiser/trips',
       admin: '/api/admin'
     },
     roles: ['tourist', 'guide', 'organiser', 'admin'],
@@ -102,6 +104,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/guide', guideRoutes);
 app.use('/api/organiser', organiserRoutes);
+app.use('/api/organiser', tripRoutes);  // Trip routes under organiser
 app.use('/api/admin', adminRoutes);
 
 // ===================
@@ -127,9 +130,9 @@ const server = app.listen(PORT, () => {
 ║   🏰 TOURSHIP API SERVER                                  ║
 ║   Rajasthan Tourism Intelligence System                   ║
 ║                                                           ║
-║   Server running on port: ${PORT}                           ║
-║   Environment: ${process.env.NODE_ENV || 'development'}                          ║
-║   API URL: http://localhost:${PORT}/api                     ║
+║   Server running on port: ${PORT}                         ║
+║   Environment: ${process.env.NODE_ENV || 'development'}   ║
+║   API URL: http://localhost:${PORT}/api                   ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
   `);
