@@ -43,8 +43,8 @@ app.use(cors({
 
 // Rate Limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   message: {
     success: false,
     message: 'Too many requests, please try again later.'
@@ -65,30 +65,50 @@ if (process.env.NODE_ENV === 'development') {
 app.use('/uploads', express.static('public/uploads'));
 
 // ===================
-// IMPORT ROUTES
+// DIAGNOSTIC ROUTE LOADING
 // ===================
-const authRoutes = require('./routes/authRoutes');
-const userRoutes = require('./routes/userRoutes');
-const guideRoutes = require('./routes/guideRoutes');
-const organiserRoutes = require('./routes/organiserRoutes');
-const adminRoutes = require('./routes/adminRoutes');
-const tripRoutes = require('./routes/tripRoutes');
+console.log('\n🔍 Checking route files...\n');
 
-// Optional routes - only import if they exist
-let attractionRoutes = null;
-let userAttractionRoutes = null;
+// Helper to safely load routes
+const safeLoadRoute = (name, path) => {
+  try {
+    const route = require(path);
+    
+    // Check if it's a valid router/function
+    if (typeof route === 'function') {
+      console.log(`✅ ${name}: OK (function/router)`);
+      return route;
+    } else if (route && typeof route === 'object') {
+      // Check if it's a router object
+      if (route.stack || route.use) {
+        console.log(`✅ ${name}: OK (router object)`);
+        return route;
+      } else {
+        console.log(`❌ ${name}: PROBLEM - Exported object but not a router`);
+        console.log(`   Keys found: ${Object.keys(route).join(', ')}`);
+        return null;
+      }
+    } else {
+      console.log(`❌ ${name}: PROBLEM - Exported ${typeof route}`);
+      return null;
+    }
+  } catch (error) {
+    console.log(`⚠️ ${name}: NOT FOUND or ERROR - ${error.message}`);
+    return null;
+  }
+};
 
-try {
-  attractionRoutes = require('./routes/attractionRoutes');
-} catch (e) {
-  console.log('⚠️ attractionRoutes not found, skipping...');
-}
+// Load all routes with diagnostics
+const authRoutes = safeLoadRoute('authRoutes', './routes/authRoutes');
+const userRoutes = safeLoadRoute('userRoutes', './routes/userRoutes');
+const guideRoutes = safeLoadRoute('guideRoutes', './routes/guideRoutes');
+const organiserRoutes = safeLoadRoute('organiserRoutes', './routes/organiserRoutes');
+const adminRoutes = safeLoadRoute('adminRoutes', './routes/adminRoutes');
+const tripRoutes = safeLoadRoute('tripRoutes', './routes/tripRoutes');
+const attractionRoutes = safeLoadRoute('attractionRoutes', './routes/attractionRoutes');
+const userAttractionRoutes = safeLoadRoute('userAttractionRoutes', './routes/userAttractionRoutes');
 
-try {
-  userAttractionRoutes = require('./routes/userAttractionRoutes');
-} catch (e) {
-  console.log('⚠️ userAttractionRoutes not found, skipping...');
-}
+console.log('\n');
 
 // ===================
 // ROUTES
@@ -125,21 +145,15 @@ app.get('/api', (req, res) => {
   });
 });
 
-// Mount routes
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/guide', guideRoutes);
-app.use('/api/organiser', organiserRoutes);
-app.use('/api/organiser', tripRoutes);  // Trip routes under organiser
-app.use('/api/admin', adminRoutes);
-
-// Mount attraction routes if they exist
-if (attractionRoutes) {
-  app.use('/api/admin/attractions', attractionRoutes);
-}
-if (userAttractionRoutes) {
-  app.use('/api/attractions', userAttractionRoutes);
-}
+// Mount routes only if they loaded successfully
+if (authRoutes) app.use('/api/auth', authRoutes);
+if (userRoutes) app.use('/api/users', userRoutes);
+if (guideRoutes) app.use('/api/guide', guideRoutes);
+if (organiserRoutes) app.use('/api/organiser', organiserRoutes);
+if (tripRoutes) app.use('/api/organiser', tripRoutes);
+if (adminRoutes) app.use('/api/admin', adminRoutes);
+if (attractionRoutes) app.use('/api/admin/attractions', attractionRoutes);
+if (userAttractionRoutes) app.use('/api/attractions', userAttractionRoutes);
 
 // ===================
 // ERROR HANDLING
