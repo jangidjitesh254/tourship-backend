@@ -255,18 +255,6 @@ const getGuideDashboard = async (req, res, next) => {
   }
 };
 
-module.exports = {
-  getGuideProfile,
-  updateGuideProfile,
-  submitForVerification,
-  getAllGuides,
-  getGuideById,
-  updateAvailability,
-  getGuideDashboard,
-  getMyAssignedTrips,
-  respondToAssignment
-};
-
 // @desc    Get trips assigned to guide
 // @route   GET /api/guide/my-trips
 // @access  Private (Guide)
@@ -358,4 +346,17 @@ const respondToAssignment = async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+};
+
+// Export all functions at the END
+module.exports = {
+  getGuideProfile,
+  updateGuideProfile,
+  submitForVerification,
+  getAllGuides,
+  getGuideById,
+  updateAvailability,
+  getGuideDashboard,
+  getMyAssignedTrips,
+  respondToAssignment
 };

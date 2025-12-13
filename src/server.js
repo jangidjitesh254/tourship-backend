@@ -18,6 +18,7 @@ const guideRoutes = require('./routes/guideRoutes');
 const organiserRoutes = require('./routes/organiserRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const tripRoutes = require('./routes/tripRoutes');
+const attractionRoutes = require('./routes/attractionRoutes');
 
 // Import error handlers
 const { notFound, errorHandler } = require('./middleware/errorHandler');
@@ -36,8 +37,24 @@ connectDB();
 app.use(helmet());
 
 // CORS Configuration
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://localhost:5174',
+  process.env.FRONTEND_URL
+].filter(Boolean);
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps or Postman)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow all origins in development
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -92,6 +109,8 @@ app.get('/api', (req, res) => {
       guide: '/api/guide',
       organiser: '/api/organiser',
       trips: '/api/organiser/trips',
+      attractions: '/api/attractions',
+      adminAttractions: '/api/admin/attractions',
       admin: '/api/admin'
     },
     roles: ['tourist', 'guide', 'organiser', 'admin'],
@@ -106,6 +125,8 @@ app.use('/api/guide', guideRoutes);
 app.use('/api/organiser', organiserRoutes);
 app.use('/api/organiser', tripRoutes);  // Trip routes under organiser
 app.use('/api/admin', adminRoutes);
+app.use('/api/attractions', attractionRoutes);  // Public attraction routes
+app.use('/api/admin/attractions', attractionRoutes);  // Admin attraction routes
 
 // ===================
 // ERROR HANDLING
@@ -130,9 +151,9 @@ const server = app.listen(PORT, () => {
 ║   🏰 TOURSHIP API SERVER                                  ║
 ║   Rajasthan Tourism Intelligence System                   ║
 ║                                                           ║
-║   Server running on port: ${PORT}                         ║
-║   Environment: ${process.env.NODE_ENV || 'development'}   ║
-║   API URL: http://localhost:${PORT}/api                   ║
+║   Server running on port: ${PORT}                           ║
+║   Environment: ${process.env.NODE_ENV || 'development'}                          ║
+║   API URL: http://localhost:${PORT}/api                     ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
   `);
