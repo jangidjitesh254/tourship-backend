@@ -12,6 +12,11 @@ const touristProfileSchema = new mongoose.Schema({
     type: String,
     enum: ['solo', 'couple', 'family', 'group', 'adventure', 'luxury', 'budget', 'cultural', 'spiritual']
   }],
+  // ADDED: Wishlist field for saving favorite attractions
+  wishlist: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Attraction'
+  }],
   visitedAttractions: [{
     attraction: { type: mongoose.Schema.Types.ObjectId, ref: 'Attraction' },
     visitedAt: { type: Date, default: Date.now },
@@ -370,7 +375,7 @@ userSchema.pre('save', function(next) {
   if (this.isNew) {
     switch (this.role) {
       case 'tourist':
-        if (!this.touristProfile) this.touristProfile = {};
+        if (!this.touristProfile) this.touristProfile = { wishlist: [] };
         break;
       case 'guide':
         if (!this.guideProfile) this.guideProfile = {};
