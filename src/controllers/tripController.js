@@ -5,7 +5,7 @@ const { AppError } = require('../middleware/errorHandler');
 // ===================
 // TRIP CRUD OPERATIONS
 // ===================
- 
+
 // @desc    Create a new trip
 // @route   POST /api/organiser/trips
 // @access  Private (Verified Organiser)
