@@ -644,33 +644,66 @@ const attractionSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
-// =================== VIRTUALS ===================
+// =================== VIRTUALS (FIXED WITH SAFETY CHECKS) ===================
 
 attractionSchema.virtual('formattedAddress').get(function() {
-  const loc = this.location;
-  return `${loc.address}, ${loc.city}, ${loc.state} ${loc.pincode || ''}`.trim();
+  try {
+    const loc = this.location;
+    if (!loc) return '';
+    return `${loc.address || ''}, ${loc.city || ''}, ${loc.state || ''} ${loc.pincode || ''}`.trim();
+  } catch (error) {
+    console.error('Error in formattedAddress virtual:', error);
+    return '';
+  }
 });
 
 attractionSchema.virtual('isCurrentlyOpen').get(function() {
-  if (this.status !== 'open') return false;
-  
-  const now = new Date();
-  const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-  const today = days[now.getDay()];
-  
-  const todayHours = this.openingHours.find(h => h.day === today);
-  if (!todayHours || !todayHours.isOpen) return false;
-  
-  const currentTime = now.getHours() * 100 + now.getMinutes();
-  const openTime = parseInt(todayHours.openTime?.replace(':', '') || '0');
-  const closeTime = parseInt(todayHours.closeTime?.replace(':', '') || '2359');
-  
-  return currentTime >= openTime && currentTime <= closeTime;
+  try {
+    // Safety check: status must be 'open'
+    if (this.status !== 'open') return false;
+    
+    // CRITICAL FIX: Check if openingHours exists and is a valid array
+    if (!this.openingHours || !Array.isArray(this.openingHours) || this.openingHours.length === 0) {
+      return false;
+    }
+    
+    const now = new Date();
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const today = days[now.getDay()];
+    
+    // Additional safety check when using find()
+    const todayHours = this.openingHours.find(h => h && h.day === today);
+    if (!todayHours || !todayHours.isOpen) return false;
+    
+    // Safety check: ensure time strings exist
+    if (!todayHours.openTime || !todayHours.closeTime) return false;
+    
+    const currentTime = now.getHours() * 100 + now.getMinutes();
+    const openTime = parseInt(todayHours.openTime.replace(':', '') || '0');
+    const closeTime = parseInt(todayHours.closeTime.replace(':', '') || '2359');
+    
+    return currentTime >= openTime && currentTime <= closeTime;
+  } catch (error) {
+    // If any error occurs in the virtual getter, return false instead of throwing
+    console.error('Error in isCurrentlyOpen virtual:', error);
+    return false;
+  }
 });
 
 attractionSchema.virtual('averageEntryFee').get(function() {
-  const indianAdult = this.entryFees.find(f => f.category === 'indian_adult');
-  return indianAdult?.amount || 0;
+  try {
+    // CRITICAL FIX: Check if entryFees exists and is a valid array
+    if (!this.entryFees || !Array.isArray(this.entryFees) || this.entryFees.length === 0) {
+      return 0;
+    }
+    
+    // Additional safety check when using find()
+    const indianAdult = this.entryFees.find(f => f && f.category === 'indian_adult');
+    return indianAdult?.amount || 0;
+  } catch (error) {
+    console.error('Error in averageEntryFee virtual:', error);
+    return 0;
+  }
 });
 
 // =================== INDEXES ===================
@@ -699,52 +732,66 @@ attractionSchema.index({
 // =================== PRE-SAVE MIDDLEWARE ===================
 
 attractionSchema.pre('save', function(next) {
-  // Generate slug
-  if (this.isNew || this.isModified('name')) {
-    this.slug = this.name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') + '-' + this.location.city.toLowerCase();
+  try {
+    // Generate slug
+    if (this.isNew || this.isModified('name')) {
+      this.slug = this.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') + '-' + this.location.city.toLowerCase();
+    }
+    
+    // Calculate popularity score
+    this.analytics.popularityScore = 
+      (this.ratings.overall * 20) +
+      (this.analytics.viewCount * 0.01) +
+      (this.analytics.wishlistCount * 0.5) +
+      (this.ratings.totalReviews * 2) +
+      (this.isFeatured ? 50 : 0) +
+      (this.isUNESCOSite ? 100 : 0);
+    
+    next();
+  } catch (error) {
+    console.error('Error in pre-save middleware:', error);
+    next(error);
   }
-  
-  // Calculate popularity score
-  this.analytics.popularityScore = 
-    (this.ratings.overall * 20) +
-    (this.analytics.viewCount * 0.01) +
-    (this.analytics.wishlistCount * 0.5) +
-    (this.ratings.totalReviews * 2) +
-    (this.isFeatured ? 50 : 0) +
-    (this.isUNESCOSite ? 100 : 0);
-  
-  next();
 });
 
 // =================== METHODS ===================
 
 attractionSchema.methods.calculateRatings = function() {
-  if (this.reviews.length === 0) {
-    this.ratings.overall = 0;
-    this.ratings.totalReviews = 0;
-    return;
+  try {
+    if (!this.reviews || this.reviews.length === 0) {
+      this.ratings.overall = 0;
+      this.ratings.totalReviews = 0;
+      return;
+    }
+    
+    const total = this.reviews.reduce((sum, review) => sum + review.rating, 0);
+    this.ratings.overall = (total / this.reviews.length).toFixed(1);
+    this.ratings.totalReviews = this.reviews.length;
+    
+    // Calculate distribution
+    this.ratings.distribution = {
+      five: this.reviews.filter(r => r.rating === 5).length,
+      four: this.reviews.filter(r => r.rating === 4).length,
+      three: this.reviews.filter(r => r.rating === 3).length,
+      two: this.reviews.filter(r => r.rating === 2).length,
+      one: this.reviews.filter(r => r.rating === 1).length
+    };
+  } catch (error) {
+    console.error('Error in calculateRatings method:', error);
   }
-  
-  const total = this.reviews.reduce((sum, review) => sum + review.rating, 0);
-  this.ratings.overall = (total / this.reviews.length).toFixed(1);
-  this.ratings.totalReviews = this.reviews.length;
-  
-  // Calculate distribution
-  this.ratings.distribution = {
-    five: this.reviews.filter(r => r.rating === 5).length,
-    four: this.reviews.filter(r => r.rating === 4).length,
-    three: this.reviews.filter(r => r.rating === 3).length,
-    two: this.reviews.filter(r => r.rating === 2).length,
-    one: this.reviews.filter(r => r.rating === 1).length
-  };
 };
 
 attractionSchema.methods.incrementView = function() {
-  this.analytics.viewCount += 1;
-  return this.save();
+  try {
+    this.analytics.viewCount += 1;
+    return this.save();
+  } catch (error) {
+    console.error('Error in incrementView method:', error);
+    throw error;
+  }
 };
 
 // =================== STATICS ===================
