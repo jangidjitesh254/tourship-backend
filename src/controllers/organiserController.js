@@ -316,23 +316,812 @@ const getMyTrips = async (req, res, next) => {
   }
 };
 
-// Placeholder stubs for other trip functions (you can expand later)
-const getTripById = async (req, res, next) => { res.status(501).json({ success: false, message: 'Not implemented' }); };
-const updateTrip = async (req, res, next) => { res.status(501).json({ success: false, message: 'Not implemented' }); };
-const deleteTrip = async (req, res, next) => { res.status(501).json({ success: false, message: 'Not implemented' }); };
-const publishTrip = async (req, res, next) => { res.status(501).json({ success: false, message: 'Not implemented' }); };
-const cancelTrip = async (req, res, next) => { res.status(501).json({ success: false, message: 'Not implemented' }); };
-const getAvailableGuides = async (req, res, next) => { res.status(501).json({ success: false, message: 'Not implemented' }); };
-const assignGuide = async (req, res, next) => { res.status(501).json({ success: false, message: 'Not implemented' }); };
-const removeGuide = async (req, res, next) => { res.status(501).json({ success: false, message: 'Not implemented' }); };
-const addBooking = async (req, res, next) => { res.status(501).json({ success: false, message: 'Not implemented' }); };
-const getTripBookings = async (req, res, next) => { res.status(501).json({ success: false, message: 'Not implemented' }); };
-const updateBooking = async (req, res, next) => { res.status(501).json({ success: false, message: 'Not implemented' }); };
-const removeBooking = async (req, res, next) => { res.status(501).json({ success: false, message: 'Not implemented' }); };
-const addHotelOptions = async (req, res, next) => { res.status(501).json({ success: false, message: 'Not implemented' }); };
-const confirmHotelForBooking = async (req, res, next) => { res.status(501).json({ success: false, message: 'Not implemented' }); };
-const getTripStats = async (req, res, next) => { res.status(501).json({ success: false, message: 'Not implemented' }); };
-const searchTourists = async (req, res, next) => { res.status(501).json({ success: false, message: 'Not implemented' }); };
+// =============================================
+// GET TRIP BY ID
+// =============================================
+const getTripById = async (req, res, next) => {
+  try {
+    const trip = await Trip.findOne({
+      _id: req.params.id,
+      organiser: req.user.id
+    })
+      .populate('attraction', 'name city category thumbnail entryFee location')
+      .populate('guide', 'firstName lastName email phone guideProfile');
+
+    if (!trip) {
+      return next(new AppError('Trip not found', 404));
+    }
+
+    res.status(200).json({
+      success: true,
+      data: trip
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// =============================================
+// UPDATE TRIP
+// =============================================
+const updateTrip = async (req, res, next) => {
+  try {
+    const trip = await Trip.findOne({
+      _id: req.params.id,
+      organiser: req.user.id
+    });
+
+    if (!trip) {
+      return next(new AppError('Trip not found', 404));
+    }
+
+    // Don't allow updates to published trips (except certain fields)
+    const allowedFieldsForPublished = ['status', 'isActive', 'hotelOptions', 'images'];
+    if (trip.status === 'published') {
+      const updateKeys = Object.keys(req.body);
+      const disallowedFields = updateKeys.filter(key => !allowedFieldsForPublished.includes(key));
+      if (disallowedFields.length > 0) {
+        return next(new AppError(`Cannot update ${disallowedFields.join(', ')} for published trips`, 400));
+      }
+    }
+
+    // If attraction is being changed, validate it
+    if (req.body.attraction) {
+      const attraction = await validateAttraction(req.body.attraction);
+      req.body.attraction = attraction._id;
+    }
+
+    // Update the trip
+    const updatedTrip = await Trip.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
+    )
+      .populate('attraction', 'name city category thumbnail entryFee')
+      .populate('guide', 'firstName lastName email phone');
+
+    res.status(200).json({
+      success: true,
+      message: 'Trip updated successfully',
+      data: updatedTrip
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// =============================================
+// DELETE TRIP
+// =============================================
+const deleteTrip = async (req, res, next) => {
+  try {
+    const trip = await Trip.findOne({
+      _id: req.params.id,
+      organiser: req.user.id
+    });
+
+    if (!trip) {
+      return next(new AppError('Trip not found', 404));
+    }
+
+    // Don't allow deleting trips with confirmed bookings
+    const confirmedBookings = trip.bookings.filter(b => 
+      b.bookingStatus === 'confirmed' || b.bookingStatus === 'completed'
+    );
+    if (confirmedBookings.length > 0) {
+      return next(new AppError('Cannot delete trip with confirmed bookings. Cancel the trip instead.', 400));
+    }
+
+    await Trip.findByIdAndDelete(req.params.id);
+
+    // Decrement organiser's package count
+    await User.findByIdAndUpdate(req.user.id, { $inc: { 'organiserProfile.totalPackages': -1 } });
+
+    res.status(200).json({
+      success: true,
+      message: 'Trip deleted successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// =============================================
+// PUBLISH TRIP
+// =============================================
+const publishTrip = async (req, res, next) => {
+  try {
+    const trip = await Trip.findOne({
+      _id: req.params.id,
+      organiser: req.user.id
+    });
+
+    if (!trip) {
+      return next(new AppError('Trip not found', 404));
+    }
+
+    if (trip.status === 'published') {
+      return res.status(200).json({
+        success: true,
+        message: 'Trip is already published',
+        data: trip
+      });
+    }
+
+    if (trip.status === 'cancelled') {
+      return next(new AppError('Cannot publish a cancelled trip', 400));
+    }
+
+    // Validate required fields for publishing
+    const validationErrors = [];
+    if (!trip.title) validationErrors.push('Title is required');
+    if (!trip.description) validationErrors.push('Description is required');
+    if (!trip.startDate) validationErrors.push('Start date is required');
+    if (!trip.endDate) validationErrors.push('End date is required');
+    if (!trip.pricing?.pricePerPerson) validationErrors.push('Price per person is required');
+    if (!trip.capacity?.maxPeople) validationErrors.push('Maximum capacity is required');
+    if (!trip.startLocation?.name) validationErrors.push('Start location is required');
+
+    if (validationErrors.length > 0) {
+      return next(new AppError(`Cannot publish: ${validationErrors.join(', ')}`, 400));
+    }
+
+    // Check if start date is in the future
+    if (new Date(trip.startDate) <= new Date()) {
+      return next(new AppError('Cannot publish a trip with a past start date', 400));
+    }
+
+    trip.status = 'published';
+    await trip.save();
+
+    const populatedTrip = await Trip.findById(trip._id)
+      .populate('attraction', 'name city category thumbnail entryFee');
+
+    res.status(200).json({
+      success: true,
+      message: 'Trip published successfully',
+      data: populatedTrip
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// =============================================
+// CANCEL TRIP
+// =============================================
+const cancelTrip = async (req, res, next) => {
+  try {
+    const trip = await Trip.findOne({
+      _id: req.params.id,
+      organiser: req.user.id
+    });
+
+    if (!trip) {
+      return next(new AppError('Trip not found', 404));
+    }
+
+    if (trip.status === 'cancelled') {
+      return res.status(200).json({
+        success: true,
+        message: 'Trip is already cancelled',
+        data: trip
+      });
+    }
+
+    if (trip.status === 'completed') {
+      return next(new AppError('Cannot cancel a completed trip', 400));
+    }
+
+    // Store cancellation reason if provided
+    const { reason } = req.body;
+
+    trip.status = 'cancelled';
+    trip.isActive = false;
+    if (reason) {
+      trip.cancellationPolicy = {
+        ...trip.cancellationPolicy,
+        description: `Cancelled: ${reason}`
+      };
+    }
+
+    // Update all pending/confirmed bookings to cancelled
+    trip.bookings.forEach(booking => {
+      if (booking.bookingStatus === 'pending' || booking.bookingStatus === 'confirmed') {
+        booking.bookingStatus = 'cancelled';
+      }
+    });
+
+    await trip.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Trip cancelled successfully',
+      data: trip
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// =============================================
+// GET AVAILABLE GUIDES
+// =============================================
+const getAvailableGuides = async (req, res, next) => {
+  try {
+    const trip = await Trip.findOne({
+      _id: req.params.id,
+      organiser: req.user.id
+    }).populate('attraction', 'location');
+
+    if (!trip) {
+      return next(new AppError('Trip not found', 404));
+    }
+
+    // Get the trip's district from the attraction
+    const tripDistrict = trip.attraction?.location?.district || 
+                        trip.destinations?.[0]?.district;
+
+    // Find verified guides who operate in the trip's area
+    const query = {
+      role: 'guide',
+      isActive: true,
+      'guideProfile.isVerified': true
+    };
+
+    // If we have a district, filter by it
+    if (tripDistrict) {
+      query['guideProfile.operatingDistricts'] = tripDistrict;
+    }
+
+    const guides = await User.find(query)
+      .select('firstName lastName profilePicture guideProfile')
+      .sort({ 'guideProfile.averageRating': -1 });
+
+    res.status(200).json({
+      success: true,
+      count: guides.length,
+      data: guides
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// =============================================
+// ASSIGN GUIDE
+// =============================================
+const assignGuide = async (req, res, next) => {
+  try {
+    const { guideId } = req.body;
+
+    if (!guideId) {
+      return next(new AppError('Guide ID is required', 400));
+    }
+
+    const trip = await Trip.findOne({
+      _id: req.params.id,
+      organiser: req.user.id
+    });
+
+    if (!trip) {
+      return next(new AppError('Trip not found', 404));
+    }
+
+    // Verify the guide exists and is verified
+    const guide = await User.findOne({
+      _id: guideId,
+      role: 'guide',
+      isActive: true,
+      'guideProfile.isVerified': true
+    });
+
+    if (!guide) {
+      return next(new AppError('Guide not found or not verified', 404));
+    }
+
+    // Assign the guide
+    trip.guide = guideId;
+    trip.guideAssignment = {
+      status: 'pending',
+      assignedAt: new Date()
+    };
+
+    await trip.save();
+
+    const populatedTrip = await Trip.findById(trip._id)
+      .populate('attraction', 'name city category thumbnail')
+      .populate('guide', 'firstName lastName email phone guideProfile');
+
+    res.status(200).json({
+      success: true,
+      message: 'Guide assigned successfully. Awaiting guide acceptance.',
+      data: populatedTrip
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// =============================================
+// REMOVE GUIDE
+// =============================================
+const removeGuide = async (req, res, next) => {
+  try {
+    const trip = await Trip.findOne({
+      _id: req.params.id,
+      organiser: req.user.id
+    });
+
+    if (!trip) {
+      return next(new AppError('Trip not found', 404));
+    }
+
+    if (!trip.guide) {
+      return next(new AppError('No guide assigned to this trip', 400));
+    }
+
+    trip.guide = null;
+    trip.guideAssignment = {
+      status: 'not_assigned',
+      assignedAt: null,
+      respondedAt: null,
+      rejectionReason: null
+    };
+
+    await trip.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Guide removed successfully',
+      data: trip
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// =============================================
+// ADD BOOKING
+// =============================================
+const addBooking = async (req, res, next) => {
+  try {
+    const trip = await Trip.findOne({
+      _id: req.params.id,
+      organiser: req.user.id
+    });
+
+    if (!trip) {
+      return next(new AppError('Trip not found', 404));
+    }
+
+    if (trip.status !== 'published' && trip.status !== 'draft') {
+      return next(new AppError('Cannot add bookings to this trip', 400));
+    }
+
+    const {
+      user,
+      numberOfPeople,
+      totalAmount,
+      travelers,
+      specialRequests,
+      contactPhone,
+      contactEmail,
+      emergencyContact
+    } = req.body;
+
+    // Validate required fields
+    if (!user || !numberOfPeople || !totalAmount) {
+      return next(new AppError('User, numberOfPeople, and totalAmount are required', 400));
+    }
+
+    // Check capacity
+    const availableSlots = trip.capacity.maxPeople - trip.capacity.currentBookings;
+    if (numberOfPeople > availableSlots) {
+      return next(new AppError(`Only ${availableSlots} slots available`, 400));
+    }
+
+    // Verify the user exists
+    const touristUser = await User.findById(user);
+    if (!touristUser) {
+      return next(new AppError('User not found', 404));
+    }
+
+    const booking = {
+      user,
+      numberOfPeople,
+      totalAmount,
+      travelers: travelers || [],
+      specialRequests,
+      contactPhone: contactPhone || touristUser.phone,
+      contactEmail: contactEmail || touristUser.email,
+      emergencyContact,
+      bookingDate: new Date(),
+      bookingStatus: 'pending',
+      paymentStatus: 'pending',
+      paidAmount: 0
+    };
+
+    trip.bookings.push(booking);
+    trip.capacity.currentBookings += numberOfPeople;
+    trip.analytics.bookingsCount += 1;
+
+    // Check if trip is now full
+    if (trip.capacity.currentBookings >= trip.capacity.maxPeople) {
+      trip.status = 'full';
+    }
+
+    await trip.save();
+
+    const populatedTrip = await Trip.findById(trip._id)
+      .populate('attraction', 'name city category thumbnail')
+      .populate('bookings.user', 'firstName lastName email phone');
+
+    res.status(201).json({
+      success: true,
+      message: 'Booking added successfully',
+      data: populatedTrip
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// =============================================
+// GET TRIP BOOKINGS
+// =============================================
+const getTripBookings = async (req, res, next) => {
+  try {
+    const trip = await Trip.findOne({
+      _id: req.params.id,
+      organiser: req.user.id
+    })
+      .select('bookings title startDate')
+      .populate('bookings.user', 'firstName lastName email phone profilePicture');
+
+    if (!trip) {
+      return next(new AppError('Trip not found', 404));
+    }
+
+    res.status(200).json({
+      success: true,
+      count: trip.bookings.length,
+      data: trip.bookings
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// =============================================
+// UPDATE BOOKING
+// =============================================
+const updateBooking = async (req, res, next) => {
+  try {
+    const { tripId, bookingId } = req.params;
+
+    const trip = await Trip.findOne({
+      _id: tripId,
+      organiser: req.user.id
+    });
+
+    if (!trip) {
+      return next(new AppError('Trip not found', 404));
+    }
+
+    const booking = trip.bookings.id(bookingId);
+    if (!booking) {
+      return next(new AppError('Booking not found', 404));
+    }
+
+    const {
+      bookingStatus,
+      paymentStatus,
+      paidAmount,
+      numberOfPeople,
+      totalAmount
+    } = req.body;
+
+    // Handle capacity changes if numberOfPeople is updated
+    if (numberOfPeople && numberOfPeople !== booking.numberOfPeople) {
+      const diff = numberOfPeople - booking.numberOfPeople;
+      const newCurrentBookings = trip.capacity.currentBookings + diff;
+      
+      if (newCurrentBookings > trip.capacity.maxPeople) {
+        return next(new AppError('Not enough capacity for this change', 400));
+      }
+      
+      trip.capacity.currentBookings = newCurrentBookings;
+      booking.numberOfPeople = numberOfPeople;
+    }
+
+    // Update allowed fields
+    if (bookingStatus) booking.bookingStatus = bookingStatus;
+    if (paymentStatus) booking.paymentStatus = paymentStatus;
+    if (paidAmount !== undefined) booking.paidAmount = paidAmount;
+    if (totalAmount) booking.totalAmount = totalAmount;
+
+    // Update revenue tracking
+    if (paymentStatus === 'completed' && booking.paymentStatus !== 'completed') {
+      trip.analytics.revenue += booking.totalAmount - (booking.paidAmount || 0);
+    }
+
+    await trip.save();
+
+    const populatedTrip = await Trip.findById(trip._id)
+      .populate('attraction', 'name city category thumbnail')
+      .populate('bookings.user', 'firstName lastName email phone');
+
+    res.status(200).json({
+      success: true,
+      message: 'Booking updated successfully',
+      data: populatedTrip
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// =============================================
+// REMOVE BOOKING
+// =============================================
+const removeBooking = async (req, res, next) => {
+  try {
+    const { tripId, bookingId } = req.params;
+
+    const trip = await Trip.findOne({
+      _id: tripId,
+      organiser: req.user.id
+    });
+
+    if (!trip) {
+      return next(new AppError('Trip not found', 404));
+    }
+
+    const booking = trip.bookings.id(bookingId);
+    if (!booking) {
+      return next(new AppError('Booking not found', 404));
+    }
+
+    // Don't allow removing completed bookings
+    if (booking.bookingStatus === 'completed') {
+      return next(new AppError('Cannot remove completed bookings', 400));
+    }
+
+    // Update capacity
+    trip.capacity.currentBookings -= booking.numberOfPeople;
+    trip.analytics.bookingsCount -= 1;
+
+    // If trip was full, update status
+    if (trip.status === 'full') {
+      trip.status = 'published';
+    }
+
+    // Remove the booking
+    trip.bookings.pull(bookingId);
+
+    await trip.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Booking removed successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// =============================================
+// ADD HOTEL OPTIONS
+// =============================================
+const addHotelOptions = async (req, res, next) => {
+  try {
+    const trip = await Trip.findOne({
+      _id: req.params.id,
+      organiser: req.user.id
+    });
+
+    if (!trip) {
+      return next(new AppError('Trip not found', 404));
+    }
+
+    const { hotels } = req.body;
+
+    if (!hotels || !Array.isArray(hotels) || hotels.length === 0) {
+      return next(new AppError('Hotels array is required', 400));
+    }
+
+    // Validate each hotel option
+    const validatedHotels = hotels.map(hotel => ({
+      hotelName: hotel.hotelName,
+      hotelRating: hotel.hotelRating || 3,
+      roomType: hotel.roomType || 'Standard',
+      pricePerNight: hotel.pricePerNight || 0,
+      amenities: hotel.amenities || [],
+      images: hotel.images || [],
+      isRecommended: hotel.isRecommended || false,
+      availableRooms: hotel.availableRooms || 10
+    }));
+
+    // Add new hotels to existing ones
+    trip.hotelOptions = [...(trip.hotelOptions || []), ...validatedHotels];
+
+    await trip.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Hotel options added successfully',
+      data: trip
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// =============================================
+// CONFIRM HOTEL FOR BOOKING
+// =============================================
+const confirmHotelForBooking = async (req, res, next) => {
+  try {
+    const { tripId, bookingId } = req.params;
+    const { hotelIndex } = req.body;
+
+    const trip = await Trip.findOne({
+      _id: tripId,
+      organiser: req.user.id
+    });
+
+    if (!trip) {
+      return next(new AppError('Trip not found', 404));
+    }
+
+    const booking = trip.bookings.id(bookingId);
+    if (!booking) {
+      return next(new AppError('Booking not found', 404));
+    }
+
+    if (hotelIndex === undefined || hotelIndex < 0 || hotelIndex >= trip.hotelOptions.length) {
+      return next(new AppError('Invalid hotel index', 400));
+    }
+
+    const selectedHotel = trip.hotelOptions[hotelIndex];
+
+    booking.selectedHotel = selectedHotel._id;
+    booking.hotelStatus = 'confirmed';
+
+    await trip.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Hotel confirmed for booking',
+      data: {
+        booking,
+        hotel: selectedHotel
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// =============================================
+// GET TRIP STATS
+// =============================================
+const getTripStats = async (req, res, next) => {
+  try {
+    const stats = await Trip.aggregate([
+      {
+        $match: { organiser: new mongoose.Types.ObjectId(req.user.id) }
+      },
+      {
+        $group: {
+          _id: null,
+          totalTrips: { $sum: 1 },
+          draftTrips: {
+            $sum: { $cond: [{ $eq: ['$status', 'draft'] }, 1, 0] }
+          },
+          publishedTrips: {
+            $sum: { $cond: [{ $eq: ['$status', 'published'] }, 1, 0] }
+          },
+          completedTrips: {
+            $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] }
+          },
+          cancelledTrips: {
+            $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0] }
+          },
+          fullTrips: {
+            $sum: { $cond: [{ $eq: ['$status', 'full'] }, 1, 0] }
+          },
+          totalBookings: { $sum: '$capacity.currentBookings' },
+          totalRevenue: { $sum: '$analytics.revenue' },
+          totalViews: { $sum: '$analytics.views' },
+          avgRating: { $avg: '$analytics.avgRating' }
+        }
+      }
+    ]);
+
+    // Get upcoming trips count
+    const upcomingTrips = await Trip.countDocuments({
+      organiser: req.user.id,
+      status: 'published',
+      startDate: { $gt: new Date() }
+    });
+
+    // Get recent bookings (last 30 days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const recentBookingsCount = await Trip.aggregate([
+      { $match: { organiser: new mongoose.Types.ObjectId(req.user.id) } },
+      { $unwind: '$bookings' },
+      { $match: { 'bookings.bookingDate': { $gte: thirtyDaysAgo } } },
+      { $count: 'count' }
+    ]);
+
+    const result = stats[0] || {
+      totalTrips: 0,
+      draftTrips: 0,
+      publishedTrips: 0,
+      completedTrips: 0,
+      cancelledTrips: 0,
+      fullTrips: 0,
+      totalBookings: 0,
+      totalRevenue: 0,
+      totalViews: 0,
+      avgRating: 0
+    };
+
+    res.status(200).json({
+      success: true,
+      data: {
+        ...result,
+        upcomingTrips,
+        recentBookings: recentBookingsCount[0]?.count || 0
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// =============================================
+// SEARCH TOURISTS
+// =============================================
+const searchTourists = async (req, res, next) => {
+  try {
+    const { q } = req.query;
+
+    if (!q || q.length < 2) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        data: []
+      });
+    }
+
+    const tourists = await User.find({
+      role: 'tourist',
+      isActive: true,
+      $or: [
+        { firstName: new RegExp(q, 'i') },
+        { lastName: new RegExp(q, 'i') },
+        { email: new RegExp(q, 'i') },
+        { phone: new RegExp(q, 'i') }
+      ]
+    })
+      .select('firstName lastName email phone profilePicture')
+      .limit(20)
+      .sort({ firstName: 1 });
+
+    res.status(200).json({
+      success: true,
+      count: tourists.length,
+      data: tourists
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
 const getAdminAttractions = async (req, res, next) => {
   try {
