@@ -205,15 +205,41 @@ const validateAttraction = async (attractionId) => {
 
 const createTrip = async (req, res, next) => {
   try {
-    const { title, description, shortDescription, attraction, tripType, categories, duration, startDate, endDate, pricing, capacity, difficulty } = req.body;
+    const { 
+      title, 
+      description, 
+      shortDescription, 
+      attraction, 
+      tripType, 
+      categories, 
+      duration, 
+      startDate, 
+      endDate, 
+      reportingTime,
+      departureTime,
+      startLocation,
+      pricing, 
+      capacity, 
+      difficulty 
+    } = req.body;
 
+    // Validate required fields
     if (!attraction) return next(new AppError('Main attraction is required', 400));
+    if (!startLocation || !startLocation.name) {
+      return next(new AppError('Start location name is required', 400));
+    }
 
     const mainAttraction = await validateAttraction(attraction);
 
-    if (new Date(startDate) >= new Date(endDate)) return next(new AppError('End date must be after start date', 400));
-    if (new Date(startDate) < new Date()) return next(new AppError('Start date cannot be in the past', 400));
+    // Validate dates
+    if (new Date(startDate) >= new Date(endDate)) {
+      return next(new AppError('End date must be after start date', 400));
+    }
+    if (new Date(startDate) < new Date()) {
+      return next(new AppError('Start date cannot be in the past', 400));
+    }
 
+    // Build trip data with ALL required fields
     const tripData = {
       title: title || `Trip to ${mainAttraction.name}`,
       description,
@@ -224,6 +250,12 @@ const createTrip = async (req, res, next) => {
       duration,
       startDate,
       endDate,
+      reportingTime,
+      departureTime,
+      startLocation: {
+        name: startLocation.name,
+        coordinates: startLocation.coordinates || undefined
+      },
       pricing: {
         ...pricing,
         attractionEntryFee: mainAttraction.entryFee?.indian?.adult || 0
