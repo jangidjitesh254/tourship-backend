@@ -14,6 +14,16 @@ const {
 const { protect } = require('../middleware/auth');
 
 // =============================================
+// PROTECTED ROUTES (Auth required) - Place first to avoid conflicts
+// =============================================
+
+// Get my bookings - MUST be before /:id routes
+router.get('/my/bookings', protect, getMyBookings);
+
+// Cancel my booking
+router.put('/:tripId/bookings/:bookingId/cancel', protect, cancelMyBooking);
+
+// =============================================
 // PUBLIC ROUTES (No auth required)
 // =============================================
 
@@ -26,20 +36,10 @@ router.get('/attraction/:attractionId', getTripsForAttraction);
 // Get trip by slug (for SEO-friendly URLs)
 router.get('/slug/:slug', getTripBySlug);
 
-// Get trip details by ID
-router.get('/:id([0-9a-fA-F]{24})', getTripDetails);
-
-// =============================================
-// PROTECTED ROUTES (Auth required)
-// =============================================
-
-// Book a trip
+// Book a trip (requires auth)
 router.post('/:id/book', protect, bookTrip);
 
-// Get my bookings
-router.get('/my/bookings', protect, getMyBookings);
-
-// Cancel my booking
-router.put('/:tripId/bookings/:bookingId/cancel', protect, cancelMyBooking);
+// Get trip details by ID - MUST be last since it's a catch-all pattern
+router.get('/:id([0-9a-fA-F]{24})', getTripDetails);
 
 module.exports = router;
