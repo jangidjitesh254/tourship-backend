@@ -107,6 +107,7 @@ const adminRoutes = safeLoadRoute('adminRoutes', './routes/adminRoutes');
 const tripRoutes = safeLoadRoute('tripRoutes', './routes/tripRoutes');
 const attractionRoutes = safeLoadRoute('attractionRoutes', './routes/attractionRoutes');
 const userAttractionRoutes = safeLoadRoute('userAttractionRoutes', './routes/userAttractionRoutes');
+const userTripsRoutes = safeLoadRoute('userTripsRoutes', './routes/userTripsRoutes');
 
 console.log('\n');
 
@@ -154,6 +155,7 @@ if (tripRoutes) app.use('/api/organiser', tripRoutes);
 if (adminRoutes) app.use('/api/admin', adminRoutes);
 if (attractionRoutes) app.use('/api/admin/attractions', attractionRoutes);
 if (userAttractionRoutes) app.use('/api/attractions', userAttractionRoutes);
+if (userTripsRoutes) app.use('/api/trips', userTripsRoutes);
 
 // ===================
 // ERROR HANDLING
