@@ -254,7 +254,10 @@ const createTrip = async (req, res, next) => {
       departureTime,
       startLocation: {
         name: startLocation.name,
-        coordinates: startLocation.coordinates || undefined
+        address: startLocation.address,
+        city: startLocation.city,
+        coordinates: startLocation.coordinates, // Already in correct format: { lat, lng }
+        meetingPoint: startLocation.meetingPoint
       },
       pricing: {
         ...pricing,
