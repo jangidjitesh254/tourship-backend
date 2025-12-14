@@ -38,7 +38,9 @@ const { protect, isOrganiser } = require('../middleware/auth'); // Removed requi
 // PUBLIC ROUTES
 // =============================================
 router.get('/all', getAllOrganisers);
-router.get('/:id', getOrganiserById);
+// Use regex to only match valid MongoDB ObjectIds (24 hex characters)
+// This prevents /:id from catching routes like /trips, /me, /attractions
+router.get('/:id([0-9a-fA-F]{24})', getOrganiserById);
 
 // =============================================
 // PROTECTED ORGANISER ROUTES
